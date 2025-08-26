@@ -2,13 +2,10 @@ package server
 
 import (
 	"context"
-	"html/template"
+	"encoding/json"
+	"l1/internal/database"
 	"log"
 	"net/http"
-	"time"
-
-	"l1/internal/database"
-	"l1/internal/model"
 )
 
 type Server struct {
@@ -20,8 +17,13 @@ func New(store *database.Store) *Server {
 }
 
 func (s *Server) Start(addr string) {
+	// API
 	mux := http.NewServeMux()
 	mux.HandleFunc("/order/", s.handleGetOrder)
+
+	// Статика — всё, что лежит в ./web (после сборки фронтенда)
+	fs := http.FileServer(http.Dir("./web"))
+	mux.Handle("/", fs) // теперь / и прочие пути пойдут в папку web
 
 	log.Printf("Веб-сервер запущен на http://localhost%s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -43,29 +45,7 @@ func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderTemplate(w, order)
-}
-
-func renderTemplate(w http.ResponseWriter, order *model.OrderData) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Добавляем функцию для форматирования Unix-времени
-	funcMap := template.FuncMap{
-		"unixToTime": func(ts int64) string {
-			return time.Unix(ts, 0).Format("02.01.2006 15:04:05")
-		},
-	}
-
-	tmpl, err := template.New("order.html").
-		Funcs(funcMap).
-		ParseFiles("internal/server/templates/order.html")
-	if err != nil {
-		http.Error(w, "Ошибка рендеринга шаблона", http.StatusInternalServerError)
-		log.Printf("Ошибка парсинга шаблона: %v", err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.Execute(w, order); err != nil {
-		log.Printf("Ошибка выполнения шаблона: %v", err)
-	}
+	//renderTemplate(w, order)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(order)
 }

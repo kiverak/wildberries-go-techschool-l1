@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Получить информацию по заказу</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 min-h-screen flex items-center justify-center p-4">
+
+<main class="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-8 w-full max-w-4xl">
+    <h1 class="text-3xl font-bold text-center mb-6">Получить информацию по заказу</h1>
+
+    <!-- Форма поиска -->
+    <form id="order-form" class="flex flex-col sm:flex-row gap-3 mb-6">
+        <input
+                type="text"
+                id="order-uid-input"
+                placeholder="Введите Order UID"
+                value="b563feb7b2b84b6test"
+                aria-label="Order UID"
+                class="flex-grow bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+        >
+        <button
+                type="submit"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition-colors duration-200">
+            Получить
+        </button>
+    </form>
+
+    <!-- Лоадер -->
+    <div id="loader" class="hidden justify-center items-center py-8">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+    </div>
+
+    <!-- Ошибка -->
+    <div id="error-message" class="hidden text-center text-red-500 bg-red-100 dark:bg-red-900/20 border border-red-500 rounded-md p-4"></div>
+
+    <!-- Детали заказа -->
+    <div id="order-details-container" class="hidden space-y-6">
+
+        <!-- Общая информация -->
+        <section>
+            <h2 class="text-xl font-semibold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">Информация о заказе</h2>
+            <dl class="space-y-1">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <dt class="font-medium text-slate-500">Order UID</dt>
+                    <dd id="order-uid"></dd>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <dt class="font-medium text-slate-500">Track Number</dt>
+                    <dd id="track-number"></dd>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <dt class="font-medium text-slate-500">Customer ID</dt>
+                    <dd id="customer-id"></dd>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <dt class="font-medium text-slate-500">Дата создания</dt>
+                    <dd id="date-created"></dd>
+                </div>
+            </dl>
+        </section>
+
+        <!-- Доставка и Оплата -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <section>
+                <h2 class="text-xl font-semibold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">Доставка</h2>
+                <p><strong>Имя:</strong> <span id="delivery-name"></span></p>
+                <p><strong>Телефон:</strong> <span id="delivery-phone"></span></p>
+                <p><strong>Email:</strong> <span id="delivery-email"></span></p>
+                <p><strong>Город:</strong> <span id="delivery-city"></span></p>
+                <p><strong>Регион:</strong> <span id="delivery-region"></span></p>
+                <p><strong>Адрес:</strong> <span id="delivery-address"></span></p>
+                <p><strong>Индекс:</strong> <span id="delivery-zip"></span></p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">Оплата</h2>
+                <p><strong>Транзакция:</strong> <span id="payment-transaction"></span></p>
+                <p><strong>Валюта:</strong> <span id="payment-currency"></span></p>
+                <p><strong>Сумма:</strong> <span id="payment-amount"></span></p>
+                <p><strong>Доставка:</strong> <span id="payment-delivery-cost"></span></p>
+                <p><strong>Всего за товары:</strong> <span id="payment-goods-total"></span></p>
+                <p><strong>Дата оплаты:</strong> <span id="payment-date"></span></p>
+                <p><strong>Банк:</strong> <span id="payment-bank"></span></p>
+                <p><strong>Провайдер:</strong> <span id="payment-provider"></span></p>
+            </section>
+        </div>
+
+        <!-- Таблица товаров -->
+        <section>
+            <h2 class="text-xl font-semibold mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">Товары</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full border border-slate-300 dark:border-slate-600">
+                    <thead>
+                    <tr class="bg-slate-100 dark:bg-slate-700">
+                        <th class="px-4 py-2 border">ID</th>
+                        <th class="px-4 py-2 border">Название</th>
+                        <th class="px-4 py-2 border">Бренд</th>
+                        <th class="px-4 py-2 border">Цена</th>
+                        <th class="px-4 py-2 border">Скидка (%)</th>
+                        <th class="px-4 py-2 border">Итоговая цена</th>
+                    </tr>
+                    </thead>
+                    <tbody id="items-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+</main>
+
+<script src="index.js"></script>
+</body>
+</html>
