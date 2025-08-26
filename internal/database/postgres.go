@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"l1/internal/model"
 
@@ -11,7 +12,9 @@ import (
 )
 
 type Store struct {
-	DB *pgxpool.Pool
+	DB    *pgxpool.Pool
+	cache map[string]*model.OrderData
+	mu    sync.RWMutex
 }
 
 func NewStore(connString string) (*Store, error) {
@@ -23,7 +26,54 @@ func NewStore(connString string) (*Store, error) {
 		return nil, fmt.Errorf("не удалось проверить соединение с базой данных: %w", err)
 	}
 	log.Println("Успешное подключение к PostgreSQL!")
-	return &Store{DB: dbpool}, nil
+
+	store := &Store{
+		DB:    dbpool,
+		cache: make(map[string]*model.OrderData),
+	}
+
+	// Фоновый прогрев кэша
+	go func() {
+		if err := store.loadCache(context.Background()); err != nil {
+			log.Printf("ошибка фонового прогрева кэша: %v", err)
+		} else {
+			log.Printf("Фоновый прогрев кэша завершён: %d заказов", len(store.cache))
+		}
+	}()
+
+	return store, nil
+}
+
+// загружает в кэш заказы за последние 7 дней
+func (s *Store) loadCache(ctx context.Context) error {
+	rows, err := s.DB.Query(ctx, `
+		SELECT order_uid 
+		FROM orders 
+		WHERE date_created >= NOW() - interval '7 days'
+		`)
+	if err != nil {
+		return fmt.Errorf("не удалось получить список заказов: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return fmt.Errorf("ошибка при чтении uid: %w", err)
+		}
+		order, err := s.GetOrderByUID(ctx, uid)
+		if err != nil {
+			log.Printf("пропускаем заказ %s: %v", uid, err)
+			continue
+		}
+		s.mu.Lock()
+		s.cache[uid] = order
+		s.mu.Unlock()
+		count++
+	}
+	log.Printf("Прогрузили в кэш %d заказов", count)
+	return nil
 }
 
 // SaveOrder сохраняет все части заказа в рамках одной транзакции.
@@ -87,9 +137,16 @@ func (s *Store) SaveOrder(ctx context.Context, order model.OrderData) error {
 
 // GetOrderByUID получает полную информацию о заказе по его UID.
 func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.OrderData, error) {
-	order := &model.OrderData{}
+	// 1. Пытаемся прочитать из кэша (read‑lock)
+	s.mu.RLock()
+	if order, ok := s.cache[orderUID]; ok {
+		s.mu.RUnlock()
+		return order, nil
+	}
+	s.mu.RUnlock()
 
-	// 1. Получаем основную информацию о заказе
+	// 2. Если в кэше нет — читаем из базы
+	order := &model.OrderData{}
 	err := s.DB.QueryRow(ctx,
 		`SELECT order_uid, track_number, entry, customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard, locale, internal_signature
 		 FROM orders WHERE order_uid = $1`,
@@ -102,7 +159,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 		return nil, fmt.Errorf("заказ с UID %s не найден: %w", orderUID, err)
 	}
 
-	// 2. Получаем информацию о доставке
+	// 3. Получаем информацию о доставке
 	err = s.DB.QueryRow(ctx,
 		`SELECT name, phone, zip, city, address, region, email FROM delivery WHERE order_uid = $1`,
 		orderUID,
@@ -114,7 +171,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 		return nil, fmt.Errorf("не найдена информация о доставке для заказа %s: %w", orderUID, err)
 	}
 
-	// 3. Получаем информацию об оплате
+	// 4. Получаем информацию об оплате
 	err = s.DB.QueryRow(ctx,
 		`SELECT transaction_id, request_id, currency, provider, amount, payment_dt, bank, delivery_cost, goods_total, custom_fee FROM payment WHERE transaction_id = $1`,
 		orderUID,
@@ -127,7 +184,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 		return nil, fmt.Errorf("не найдена информация об оплате для заказа %s: %w", orderUID, err)
 	}
 
-	// 4. Получаем список товаров
+	// 5. Получаем список товаров
 	rows, err := s.DB.Query(ctx,
 		`SELECT chrt_id, track_number, price, rid, name, sale, size, total_price, nm_id, brand, status
 		 FROM items WHERE order_uid = $1`,
@@ -148,6 +205,11 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 		}
 		order.Items = append(order.Items, item)
 	}
+
+	// 6. Кладём в кэш (write‑lock)
+	s.mu.Lock()
+	s.cache[orderUID] = order
+	s.mu.Unlock()
 
 	return order, nil
 }
