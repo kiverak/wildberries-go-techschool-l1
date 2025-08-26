@@ -141,6 +141,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 	s.mu.RLock()
 	if order, ok := s.cache[orderUID]; ok {
 		s.mu.RUnlock()
+		log.Printf("Заказ %s найден в кэше", orderUID)
 		return order, nil
 	}
 	s.mu.RUnlock()
