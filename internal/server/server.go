@@ -3,16 +3,23 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"l1/internal/database"
 	"log"
 	"net/http"
+
+	"l1/internal/model"
 )
 
-type Server struct {
-	store *database.Store
+// OrderGetter определяет интерфейс для получения заказа.
+// Это позволяет мокировать хранилище в тестах.
+type OrderGetter interface {
+	GetOrderByUID(ctx context.Context, orderUID string) (*model.OrderData, error)
 }
 
-func New(store *database.Store) *Server {
+type Server struct {
+	store OrderGetter
+}
+
+func New(store OrderGetter) *Server {
 	return &Server{store: store}
 }
 
@@ -45,7 +52,10 @@ func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//renderTemplate(w, order)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	err = json.NewEncoder(w).Encode(order)
+	if err != nil {
+		log.Printf("Ошибка кодирования заказа %s: %v", orderUID, err)
+		return
+	}
 }
