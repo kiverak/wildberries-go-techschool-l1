@@ -14,13 +14,7 @@
 
 `go get github.com/joho/godotenv`
 
-**Запуск контейнера Postgres**
-
-`docker-compose up -d`
-
-**Запуск контейнера Kafka**
-
-`docker-compose -f docker-compose-kafka.yml up -d`
+**Запуск контейнеров Postgres и Kafka**
 
 Теперь локально работает кластер Kafka из трех брокеров. Можно подключаться к нему, используя bootstrap-серверы: localhost:9092,localhost:9094,localhost:9096
 
