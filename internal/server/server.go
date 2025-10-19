@@ -32,7 +32,7 @@ func (s *Server) Start(addr string) error {
 	fs := http.FileServer(http.Dir("./web"))
 	mux.Handle("/", fs) // теперь / и прочие пути пойдут в папку web
 
-	log.Printf("Веб-сервер запущен на http://localhost%s", addr)
+	log.Printf("Веб-сервер запущен на http://%s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("Ошибка при запуске сервера: %v", err)
 		return err
