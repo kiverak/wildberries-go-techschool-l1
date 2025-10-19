@@ -1,8 +1,11 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -14,6 +17,10 @@ type Config struct {
 
 // Load загружает конфигурацию из переменных окружения.
 func Load() *Config {
+	if err := godotenv.Load(); err != nil {
+		log.Println("Файл .env не найден, используются переменные окружения системы")
+	}
+
 	return &Config{
 		KafkaBrokers: getEnvAsSlice("KAFKA_BROKERS", "localhost:9092,localhost:9094,localhost:9096"),
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "orders"),
