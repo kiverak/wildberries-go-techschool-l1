@@ -4,20 +4,29 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"l1/internal/model"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Store struct {
-	DB    *pgxpool.Pool
-	cache map[string]*model.OrderData
-	mu    sync.RWMutex
+// DBPoolIface определяет методы, которые Store использует для взаимодействия с базой данных.
+type DBPoolIface interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Close()
 }
 
-func NewStore(connString string) (*Store, error) {
+// PostgresStore реализует интерфейс OrderDB.
+type PostgresStore struct {
+	DB DBPoolIface
+}
+
+// NewPostgresStore создает подключение и возвращает *PostgresStore.
+func NewPostgresStore(connString string) (*PostgresStore, error) {
 	dbpool, err := pgxpool.New(context.Background(), connString)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось подключиться к базе данных: %w", err)
@@ -27,58 +36,18 @@ func NewStore(connString string) (*Store, error) {
 	}
 	log.Println("Успешное подключение к PostgreSQL!")
 
-	store := &Store{
-		DB:    dbpool,
-		cache: make(map[string]*model.OrderData),
-	}
-
-	// Фоновый прогрев кэша
-	go func() {
-		if err := store.loadCache(context.Background()); err != nil {
-			log.Printf("ошибка фонового прогрева кэша: %v", err)
-		} else {
-			log.Printf("Фоновый прогрев кэша завершён: %d заказов", len(store.cache))
-		}
-	}()
-
-	return store, nil
+	return &PostgresStore{
+		DB: dbpool,
+	}, nil
 }
 
-// загружает в кэш заказы за последние 7 дней
-func (s *Store) loadCache(ctx context.Context) error {
-	rows, err := s.DB.Query(ctx, `
-		SELECT order_uid 
-		FROM orders 
-		WHERE date_created >= NOW() - interval '7 days'
-		`)
-	if err != nil {
-		return fmt.Errorf("не удалось получить список заказов: %w", err)
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			return fmt.Errorf("ошибка при чтении uid: %w", err)
-		}
-		order, err := s.GetOrderByUID(ctx, uid)
-		if err != nil {
-			log.Printf("пропускаем заказ %s: %v", uid, err)
-			continue
-		}
-		s.mu.Lock()
-		s.cache[uid] = order
-		s.mu.Unlock()
-		count++
-	}
-	log.Printf("Прогрузили в кэш %d заказов", count)
-	return nil
+func (p *PostgresStore) Close() {
+	p.DB.Close()
 }
 
 // SaveOrder сохраняет все части заказа в рамках одной транзакции.
-func (s *Store) SaveOrder(ctx context.Context, order model.OrderData) error {
-	tx, err := s.DB.Begin(ctx)
+func (p *PostgresStore) SaveOrder(ctx context.Context, order model.OrderData) error {
+	tx, err := p.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("не удалось начать транзакцию: %w", err)
 	}
@@ -131,26 +100,15 @@ func (s *Store) SaveOrder(ctx context.Context, order model.OrderData) error {
 		}
 	}
 
-	// Если все успешно, коммитим транзакцию
 	return tx.Commit(ctx)
 }
 
 // GetOrderByUID получает полную информацию о заказе по его UID.
-func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.OrderData, error) {
-	// 1. Пытаемся прочитать из кэша (read‑lock)
-	s.mu.RLock()
-	if order, ok := s.cache[orderUID]; ok {
-		s.mu.RUnlock()
-		log.Printf("Заказ %s найден в кэше", orderUID)
-		return order, nil
-	}
-	s.mu.RUnlock()
-
-	// 2. Если в кэше нет — читаем из базы
+func (p *PostgresStore) GetOrderByUID(ctx context.Context, orderUID string) (*model.OrderData, error) {
 	order := &model.OrderData{}
-	err := s.DB.QueryRow(ctx,
+	err := p.DB.QueryRow(ctx,
 		`SELECT order_uid, track_number, entry, customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard, locale, internal_signature
-		 FROM orders WHERE order_uid = $1`,
+        FROM orders WHERE order_uid = $1`,
 		orderUID,
 	).Scan(
 		&order.OrderUID, &order.TrackNumber, &order.Entry, &order.CustomerID, &order.DeliveryService,
@@ -161,7 +119,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 	}
 
 	// 3. Получаем информацию о доставке
-	err = s.DB.QueryRow(ctx,
+	err = p.DB.QueryRow(ctx,
 		`SELECT name, phone, zip, city, address, region, email FROM delivery WHERE order_uid = $1`,
 		orderUID,
 	).Scan(
@@ -173,7 +131,7 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 	}
 
 	// 4. Получаем информацию об оплате
-	err = s.DB.QueryRow(ctx,
+	err = p.DB.QueryRow(ctx,
 		`SELECT transaction_id, request_id, currency, provider, amount, payment_dt, bank, delivery_cost, goods_total, custom_fee FROM payment WHERE transaction_id = $1`,
 		orderUID,
 	).Scan(
@@ -186,13 +144,13 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 	}
 
 	// 5. Получаем список товаров
-	rows, err := s.DB.Query(ctx,
+	rows, err := p.DB.Query(ctx,
 		`SELECT chrt_id, track_number, price, rid, name, sale, size, total_price, nm_id, brand, status
-		 FROM items WHERE order_uid = $1`,
+        FROM items WHERE order_uid = $1`,
 		orderUID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка при получении товаров для заказа %s: %w", orderUID, err)
+		return nil, fmt.Errorf("ошибка при получении товаров для заказа %s: %w", err)
 	}
 	defer rows.Close()
 
@@ -207,10 +165,28 @@ func (s *Store) GetOrderByUID(ctx context.Context, orderUID string) (*model.Orde
 		order.Items = append(order.Items, item)
 	}
 
-	// 6. Кладём в кэш (write‑lock)
-	s.mu.Lock()
-	s.cache[orderUID] = order
-	s.mu.Unlock()
-
 	return order, nil
+}
+
+// GetRecentOrderUIDs — метод для прогрева кэша.
+func (p *PostgresStore) GetRecentOrderUIDs(ctx context.Context, since time.Time) ([]string, error) {
+	rows, err := p.DB.Query(ctx, `
+       SELECT order_uid 
+       FROM orders 
+       WHERE date_created >= $1
+       `, since)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось получить список заказов: %w", err)
+	}
+	defer rows.Close()
+
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("ошибка при чтении uid: %w", err)
+		}
+		uids = append(uids, uid)
+	}
+	return uids, rows.Err()
 }

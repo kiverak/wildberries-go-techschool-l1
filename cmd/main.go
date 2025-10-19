@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"l1/internal/config"
 	"l1/internal/consumer"
@@ -31,16 +32,27 @@ func main() {
 	}()
 
 	// Подключаемся к базе данных
-	store, err := database.NewStore(cfg.PostgresURL)
+	dbStore, err := database.NewPostgresStore(cfg.PostgresURL)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
-	defer store.DB.Close()
+
+	// Создаем слой для работы с кэшем (in-memory)
+	memCache := database.NewMemoryCache(1 * time.Hour) // инвалидация кеша через TTL 1 час
+
+	// Создаем основной сервис, передавая ему зависимости (БД и кэш)
+	orderService := database.NewService(dbStore, memCache)
+	defer orderService.Close() //  закрываем соединение с БД и кеш
 
 	// Запускаем Kafka consumer в отдельной горутине
-	go consumer.Start(ctx, cfg.KafkaBrokers, cfg.KafkaTopic, store)
+	go consumer.Start(ctx, cfg.KafkaBrokers, cfg.KafkaTopic, orderService)
 
 	// Запускаем веб-сервер
-	webServer := server.New(store)
-	webServer.Start(cfg.ServerAddr)
+	webServer := server.New(orderService)
+	if err := webServer.Start(cfg.ServerAddr); err != nil {
+		log.Printf("Ошибка сервера: %v", err)
+	}
+
+	<-ctx.Done()
+	log.Println("Приложение успешно завершило работу.")
 }

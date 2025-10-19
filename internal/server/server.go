@@ -23,7 +23,7 @@ func New(store OrderGetter) *Server {
 	return &Server{store: store}
 }
 
-func (s *Server) Start(addr string) {
+func (s *Server) Start(addr string) error {
 	// API
 	mux := http.NewServeMux()
 	mux.HandleFunc("/order/", s.handleGetOrder)
@@ -35,7 +35,10 @@ func (s *Server) Start(addr string) {
 	log.Printf("Веб-сервер запущен на http://localhost%s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("Ошибка при запуске сервера: %v", err)
+		return err
 	}
+
+	return nil
 }
 
 func (s *Server) handleGetOrder(w http.ResponseWriter, r *http.Request) {
