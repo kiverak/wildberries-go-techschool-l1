@@ -3,17 +3,39 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
-	"l1/internal/database"
 	"l1/internal/model"
 
 	"github.com/segmentio/kafka-go"
 )
 
+// OrderSaver определяет интерфейс для сохранения заказа.
+// Это делает consumer тестируемым, позволяя мокировать хранилище данных.
+type OrderSaver interface {
+	SaveOrder(ctx context.Context, order model.OrderData) error
+}
+
+// handleMessage распаковывает сообщение и сохраняет заказ в хранилище.
+// Выделен в отдельную функцию для удобства тестирования.
+func handleMessage(ctx context.Context, msgValue []byte, store OrderSaver) error {
+	var orderMsg model.OrderData
+	if err := json.Unmarshal(msgValue, &orderMsg); err != nil {
+		return fmt.Errorf("ошибка парсинга JSON: %w", err)
+	}
+
+	if err := store.SaveOrder(ctx, orderMsg); err != nil {
+		return fmt.Errorf("ошибка сохранения заказа в БД (%s): %w", orderMsg.OrderUID, err)
+	}
+
+	log.Printf("Заказ %s успешно сохранен", orderMsg.OrderUID)
+	return nil
+}
+
 // Start запускает consumer'а Kafka.
-func Start(ctx context.Context, brokers []string, topic string, store *database.Store) {
+func Start(ctx context.Context, brokers []string, topic string, store OrderSaver) {
 	// Настраиваем Kafka Reader
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
@@ -23,7 +45,12 @@ func Start(ctx context.Context, brokers []string, topic string, store *database.
 		MaxBytes:       10e6,                    // 10MB
 		CommitInterval: time.Second,             // Фиксируем смещение каждую секунду
 	})
-	defer r.Close()
+	defer func(r *kafka.Reader) {
+		err := r.Close()
+		if err != nil {
+			log.Printf("ошибка закрытия Reader: %v", err)
+		}
+	}(r)
 
 	log.Printf("Запущен consumer для топика '%s'", topic)
 
@@ -35,24 +62,15 @@ func Start(ctx context.Context, brokers []string, topic string, store *database.
 			if ctx.Err() != nil {
 				break
 			}
-			log.Printf("ошибка при чтении сообщения: %v", err)
+			log.Printf("Ошибка при чтении сообщения: %v", err)
 			continue
 		}
 
 		log.Printf("Получено сообщение: offset=%d, key=%s, value=%s\n", msg.Offset, string(msg.Key), string(msg.Value))
 
-		// Парсим JSON
-		var orderMsg model.OrderData
-		if err := json.Unmarshal(msg.Value, &orderMsg); err != nil {
-			log.Printf("ошибка парсинга JSON: %v", err)
-			continue
-		}
-
-		// Сохраняем заказ в базу данных
-		if err := store.SaveOrder(ctx, orderMsg); err != nil {
-			log.Printf("ошибка сохранения заказа в БД (%s): %v", orderMsg.OrderUID, err)
-		} else {
-			log.Printf("Заказ %s успешно сохранен", orderMsg.OrderUID)
+		// Парсим и сохраняем
+		if err := handleMessage(ctx, msg.Value, store); err != nil {
+			log.Printf("ошибка обработки сообщения: %v", err)
 		}
 	}
 
