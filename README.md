@@ -18,18 +18,31 @@
 
 Теперь локально работает кластер Kafka из трех брокеров. Можно подключаться к нему, используя bootstrap-серверы: localhost:9092,localhost:9094,localhost:9096
 
-**Создать топик в Kafka**
-
-`docker exec -it kafka1 //opt/bitnami/kafka/bin/kafka-topics.sh --create --topic orders --bootstrap-server kafka1:29092 --partitions 3 --replication-factor 3`
-
 **Запустить Go-приложение**
 
 `go run cmd/main.go`
 
 **Отправьте тестовое сообщение в Kafka**
 
-`docker exec -it kafka1 /opt/bitnami/kafka/bin/kafka-console-producer.sh --topic orders --bootstrap-server localhost:9092 {JSON_MESSAGE_HERE}`
+Запустите скрипт publisher.sh
 
-или
+1. Для работы скрипта понадобится утилита jq. Это стандартный инструмент для работы с JSON в командной строке.
+   Windows (с помощью Chocolatey): 
 
-`cat ./internal/test/test_model.json | tr -d '\n\r' | docker exec -i kafka1 //opt/bitnami/kafka/bin/kafka-console-producer.sh --topic orders --bootstrap-server kafka1:29092`
+    ```choco install jq```
+       
+    macOS (с помощью Homebrew):
+    
+    ```brew install jq```
+       
+    Linux (Debian/Ubuntu): 
+    
+    ```sudo apt-get install jq```
+
+2. Сделайте скрипт исполняемым (в терминале Git Bash, WSL или на Linux/macOS):
+
+   chmod +x publisher.sh
+
+3. Запустите скрипт из корневой папки:
+
+   ```./publisher.sh```
