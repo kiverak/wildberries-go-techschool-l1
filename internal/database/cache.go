@@ -16,6 +16,7 @@ type MemoryCache struct {
 	cache  map[string]cacheEntry
 	mu     sync.RWMutex
 	ttl    time.Duration
+	once   sync.Once
 	stopCh chan struct{}
 }
 
@@ -110,5 +111,7 @@ func (m *MemoryCache) cleanupLoop(interval time.Duration) {
 
 // Close останавливает фоновую очистку
 func (m *MemoryCache) Close() {
-	close(m.stopCh)
+	m.once.Do(func() { // сработает при первом вызове, повторные вызовы просто ничего не будут делать
+		close(m.stopCh)
+	})
 }

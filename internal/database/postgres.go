@@ -150,7 +150,7 @@ func (p *PostgresStore) GetOrderByUID(ctx context.Context, orderUID string) (*mo
 		orderUID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка при получении товаров для заказа %s: %w", err)
+		return nil, fmt.Errorf("ошибка при получении товаров для заказа %s: %w", orderUID, err)
 	}
 	defer rows.Close()
 
