@@ -13,17 +13,20 @@ import (
 )
 
 // OrderSaver определяет интерфейс для сохранения заказа.
-// Это делает consumer тестируемым, позволяя мокировать хранилище данных.
 type OrderSaver interface {
 	SaveOrder(ctx context.Context, order model.OrderData) error
 }
 
-// handleMessage распаковывает сообщение и сохраняет заказ в хранилище.
-// Выделен в отдельную функцию для удобства тестирования.
+// handleMessage распаковывает, валидирует и сохраняет заказ в хранилище.
 func handleMessage(ctx context.Context, msgValue []byte, store OrderSaver) error {
 	var orderMsg model.OrderData
 	if err := json.Unmarshal(msgValue, &orderMsg); err != nil {
 		return fmt.Errorf("ошибка парсинга JSON: %w", err)
+	}
+
+	// Валидация данных
+	if err := orderMsg.Validate(); err != nil {
+		return fmt.Errorf("ошибка валидации заказа (%s): %w", orderMsg.OrderUID, err)
 	}
 
 	if err := store.SaveOrder(ctx, orderMsg); err != nil {
@@ -36,7 +39,6 @@ func handleMessage(ctx context.Context, msgValue []byte, store OrderSaver) error
 
 // Start запускает consumer'а Kafka.
 func Start(ctx context.Context, brokers []string, topic string, store OrderSaver) {
-	// Настраиваем Kafka Reader
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		Topic:          topic,
@@ -68,7 +70,7 @@ func Start(ctx context.Context, brokers []string, topic string, store OrderSaver
 
 		log.Printf("Получено сообщение: offset=%d, key=%s, value=%s\n", msg.Offset, string(msg.Key), string(msg.Value))
 
-		// Парсим и сохраняем
+		// Парсим, валидируем и сохраняем
 		if err := handleMessage(ctx, msg.Value, store); err != nil {
 			log.Printf("ошибка обработки сообщения: %v", err)
 		}
