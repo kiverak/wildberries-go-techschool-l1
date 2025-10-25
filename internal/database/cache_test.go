@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestOrder создает мок-заказ для тестов.
@@ -27,15 +28,9 @@ func TestMemoryCache_SetAndGet(t *testing.T) {
 	cache.Set("order-123", order)
 
 	retrieved, ok := cache.Get("order-123")
-	if !ok {
-		t.Fatal("Не удалось получить заказ, который был только что установлен")
-	}
-	if retrieved == nil {
-		t.Fatal("Получен nil вместо заказа")
-	}
-	if retrieved.OrderUID != "order-123" {
-		t.Errorf("Получен заказ с неверным UID. Ожидалось 'order-123', получено %q", retrieved.OrderUID)
-	}
+	require.True(t, ok, "Не удалось получить заказ, который был только что установлен")
+	require.NotNil(t, retrieved, "Получен nil вместо заказа")
+	assert.Equal(t, "order-123", retrieved.OrderUID, "Получен заказ с неверным UID")
 }
 
 // TestMemoryCache_GetNotFound — тест получения несуществующего ключа.
@@ -44,12 +39,8 @@ func TestMemoryCache_GetNotFound(t *testing.T) {
 	defer cache.Close()
 
 	retrieved, ok := cache.Get("non-existent-key")
-	if ok {
-		t.Error("Получено 'true' для несуществующего ключа")
-	}
-	if retrieved != nil {
-		t.Error("Получен заказ вместо nil для несуществующего ключа")
-	}
+	assert.False(t, ok, "Получено 'true' для несуществующего ключа")
+	assert.Nil(t, retrieved, "Получен заказ вместо nil для несуществующего ключа")
 }
 
 // TestMemoryCache_LazyTTLExpiration — тест "ленивой" инвалидации при Get.
@@ -87,12 +78,8 @@ func TestMemoryCache_GetBeforeTTL(t *testing.T) {
 	time.Sleep(ttl - 30*time.Millisecond)
 
 	retrieved, ok := cache.Get("order-1")
-	if !ok {
-		t.Error("Получено 'false' для ключа с активным TTL")
-	}
-	if retrieved == nil {
-		t.Error("Получен nil вместо заказа для ключа с активным TTL")
-	}
+	assert.True(t, ok, "Получено 'false' для ключа с активным TTL")
+	assert.NotNil(t, retrieved, "Получен nil вместо заказа для ключа с активным TTL")
 }
 
 // TestMemoryCache_Delete — тест удаления из кэша.
@@ -101,19 +88,12 @@ func TestMemoryCache_Delete(t *testing.T) {
 	defer cache.Close()
 
 	cache.Set("order-1", newTestOrder("order-1"))
-	_, ok := cache.Get("order-1")
-	if !ok {
-		t.Fatal("Не удалось получить заказ для удаления")
-	}
+	require.True(t, cache.Count() == 1, "Заказ не был добавлен в кэш")
 
 	cache.Delete("order-1")
 	retrieved, ok := cache.Get("order-1")
-	if ok {
-		t.Error("Получено 'true' для удаленного ключа")
-	}
-	if retrieved != nil {
-		t.Error("Получен заказ вместо nil для удаленного ключа")
-	}
+	assert.False(t, ok, "Получено 'true' для удаленного ключа")
+	assert.Nil(t, retrieved, "Получен заказ вместо nil для удаленного ключа")
 }
 
 // TestMemoryCache_CleanupLoop - тест фоновой очистки кэша.
@@ -147,24 +127,16 @@ func TestMemoryCache_Count(t *testing.T) {
 	cache := NewMemoryCache(1 * time.Minute)
 	defer cache.Close()
 
-	if cache.Count() != 0 {
-		t.Errorf("Ожидалось 0 элементов, получено %d", cache.Count())
-	}
+	assert.Equal(t, 0, cache.Count(), "В пустом кэше должны быть 0 элементов")
 
 	cache.Set("order-1", newTestOrder("order-1"))
-	if cache.Count() != 1 {
-		t.Errorf("Ожидался 1 элемент, получено %d", cache.Count())
-	}
+	assert.Equal(t, 1, cache.Count(), "В кэше должен быть 1 элемент")
 
 	cache.Set("order-2", newTestOrder("order-2"))
-	if cache.Count() != 2 {
-		t.Errorf("Ожидалось 2 элемента, получено %d", cache.Count())
-	}
+	assert.Equal(t, 2, cache.Count(), "В кэше должно быть 2 элемента")
 
 	cache.Delete("order-1")
-	if cache.Count() != 1 {
-		t.Errorf("Ожидался 1 элемент после удаления, получено %d", cache.Count())
-	}
+	assert.Equal(t, 1, cache.Count(), "В кэше должен остаться 1 элемент после удаления")
 }
 
 // TestMemoryCache_Close — тест остановки фоновой горутины.
