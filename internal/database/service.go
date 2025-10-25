@@ -38,24 +38,24 @@ type Service struct {
 
 // NewService — конструктор, использующий Dependency Injection
 func NewService(db OrderDB, cache OrderCache) *Service {
-	service := &Service{
+	return &Service{
 		db:    db,
 		cache: cache,
 	}
+}
 
-	// Запускаем фоновый прогрев кэша
+// RunBackgroundJobs запускает фоновые процессы, такие как прогрев кэша.
+func (s *Service) RunBackgroundJobs(ctx context.Context) {
 	go func() {
 		log.Println("Запуск фонового прогрева кэша...")
 		// Прогреваем данные за последние 7 дней
 		since := time.Now().Add(-7 * 24 * time.Hour)
-		if err := service.warmUpCache(context.Background(), since); err != nil {
+		if err := s.warmUpCache(ctx, since); err != nil {
 			log.Printf("Ошибка фонового прогрева кэша: %v", err)
 		} else {
-			log.Printf("Фоновый прогрев кэша завершён: %d заказов", service.cache.Count())
+			log.Printf("Фоновый прогрев кэша завершён: %d заказов", s.cache.Count())
 		}
 	}()
-
-	return service
 }
 
 // warmUpCache выполняет прогрев кэша при старте

@@ -44,6 +44,9 @@ func main() {
 	orderService := database.NewService(dbStore, memCache)
 	defer orderService.Close() //  закрываем соединение с БД и кеш
 
+	// Запускаем фоновые задачи сервиса (например, прогрев кэша)
+	orderService.RunBackgroundJobs(ctx)
+
 	// Запускаем Kafka consumer в отдельной горутине
 	go consumer.Start(ctx, cfg.KafkaBrokers, cfg.KafkaTopic, orderService)
 
