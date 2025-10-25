@@ -12,7 +12,6 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
-// MemoryCache реализует интерфейс OrderCache
 type MemoryCache struct {
 	cache  map[string]cacheEntry
 	mu     sync.RWMutex
@@ -46,7 +45,6 @@ func (m *MemoryCache) Get(uid string) (*model.OrderData, bool) {
 
 	// Проверяем TTL
 	if time.Now().After(entry.expiresAt) {
-		// Устарело — удаляем
 		m.Delete(uid)
 		return nil, false
 	}
@@ -86,14 +84,24 @@ func (m *MemoryCache) cleanupLoop(interval time.Duration) {
 	for {
 		select {
 		case <-ticker.C:
-			now := time.Now()
-			m.mu.Lock()
+			expiredKeys := make([]string, 0)
+			// 1. Собираем ключи для удаления под блокировкой на чтение
+			m.mu.RLock()
 			for uid, entry := range m.cache {
-				if now.After(entry.expiresAt) {
-					delete(m.cache, uid)
+				if time.Now().After(entry.expiresAt) {
+					expiredKeys = append(expiredKeys, uid)
 				}
 			}
-			m.mu.Unlock()
+			m.mu.RUnlock()
+
+			// 2. Если есть что удалять, блокируем для записи и удаляем
+			if len(expiredKeys) > 0 {
+				m.mu.Lock()
+				for _, uid := range expiredKeys {
+					delete(m.cache, uid)
+				}
+				m.mu.Unlock()
+			}
 		case <-m.stopCh:
 			return
 		}
