@@ -2,9 +2,12 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,57 +29,34 @@ func newMockPostgresStore(t *testing.T) (*PostgresStore, pgxmock.PgxPoolIface) {
 	return store, mock
 }
 
-// newTestOrderData создает полный объект заказа для использования в тестах.
+var (
+	testOrderTemplate model.OrderData
+	loadOnce          sync.Once
+)
+
+// loadTestOrderTemplate загружает шаблон заказа из JSON-файла.
+func loadTestOrderTemplate() {
+	loadOnce.Do(func() {
+		file, err := os.ReadFile("../../internal/test/test_model.json")
+		if err != nil {
+			panic(fmt.Sprintf("не удалось прочитать тестовый файл: %v", err))
+		}
+		err = json.Unmarshal(file, &testOrderTemplate)
+		if err != nil {
+			panic(fmt.Sprintf("не удалось распарсить тестовый JSON: %v", err))
+		}
+	})
+}
+
+// newTestOrderData создает копию тестового заказа с уникальным UID.
 func newTestOrderData(uid string) model.OrderData {
-	return model.OrderData{
-		OrderUID:    uid,
-		TrackNumber: "TRACK123",
-		Entry:       "WBIL",
-		Delivery: model.Delivery{
-			Name:    "Test Testov",
-			Phone:   "+9720000000",
-			Zip:     "2639809",
-			City:    "Kiryat Mozkin",
-			Address: "Ploshad Mira 15",
-			Region:  "Kraiot",
-			Email:   "test@gmail.com",
-		},
-		Payment: model.Payment{
-			Transaction:  uid,
-			RequestID:    "",
-			Currency:     "USD",
-			Provider:     "wbpay",
-			Amount:       1817,
-			PaymentDt:    1637907727,
-			Bank:         "alpha",
-			DeliveryCost: 1500,
-			GoodsTotal:   317,
-			CustomFee:    0,
-		},
-		Items: []model.Item{
-			{
-				ChrtID:      9934930,
-				TrackNumber: "TRACK123",
-				Price:       453,
-				Rid:         "ab4219087a764ae0btest",
-				Name:        "Mascaras",
-				Sale:        30,
-				Size:        "0",
-				TotalPrice:  317,
-				NmID:        2389232,
-				Brand:       "Vivienne Sabo",
-				Status:      202,
-			},
-		},
-		Locale:            "en",
-		InternalSignature: "",
-		CustomerID:        "test",
-		DeliveryService:   "meest",
-		Shardkey:          "9",
-		SmID:              99,
-		DateCreated:       time.Now(),
-		OofShard:          "1",
-	}
+	loadTestOrderTemplate()
+	orderCopy := testOrderTemplate // Создаем копию
+	orderCopy.OrderUID = uid
+	orderCopy.Payment.Transaction = uid
+	// Устанавливаем текущее время, чтобы избежать проблем со сравнением в тестах
+	orderCopy.DateCreated = time.Now()
+	return orderCopy
 }
 
 // TestPostgresStore_SaveOrder_Success проверяет успешное сохранение заказа
