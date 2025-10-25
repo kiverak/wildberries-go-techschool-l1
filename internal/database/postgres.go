@@ -46,12 +46,20 @@ func (p *PostgresStore) Close() {
 }
 
 // SaveOrder сохраняет все части заказа в рамках одной транзакции.
-func (p *PostgresStore) SaveOrder(ctx context.Context, order model.OrderData) error {
+func (p *PostgresStore) SaveOrder(ctx context.Context, order model.OrderData) (err error) {
 	tx, err := p.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("не удалось начать транзакцию: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		// Если основная функция возвращает ошибку, пытаемся откатить транзакцию.
+		if err != nil {
+			// Если и откат не удался, добавляем эту информацию к основной ошибке.
+			if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && rollbackErr != pgx.ErrTxClosed {
+				err = fmt.Errorf("ошибка при откате транзакции: %v (исходная ошибка: %w)", rollbackErr, err)
+			}
+		}
+	}()
 
 	// 1. Сохраняем информацию о доставке
 	_, err = tx.Exec(ctx,
@@ -100,6 +108,7 @@ func (p *PostgresStore) SaveOrder(ctx context.Context, order model.OrderData) er
 		}
 	}
 
+	// Если все прошло успешно, коммитим транзакцию.
 	return tx.Commit(ctx)
 }
 
